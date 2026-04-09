@@ -838,7 +838,7 @@ with _memo_col2.popover("📝 メモ帳", use_container_width=True):
             _mf.write(_memo_text)
         st.success("✅ 保存しました")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["アカウント管理", "ポストファクトリー", "投稿モニター", "リポスト", "引用投稿", "バズリサーチ"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["アカウント管理", "ポストファクトリー", "投稿モニター", "リポスト", "引用投稿", "📖 使い方ガイド"])
 
 # ==================== TAB 1: Account Management ====================
 with tab1:
@@ -3869,272 +3869,132 @@ with tab5:
         save_json(QUOTE_HISTORY_FILE, [])
         st.rerun()
 
-# ==================== TAB 6: バズリサーチ ====================
-BUZZ_POSTS_FILE = os.path.join(BASE_DIR, "buzz_posts.json")
-BUZZ_LOGIN_FILE = os.path.join(BASE_DIR, "buzz_login.json")
-BUZZ_COOKIE_FILE = os.path.join(BASE_DIR, "threads_session.json")
-
+# ==================== TAB 6: 使い方ガイド ====================
 with tab6:
-    st.header("バズリサーチ")
-    st.caption("Threadsのおすすめフィードからバズ投稿を自動収集")
+    st.header("📖 使い方ガイド")
+    st.caption("各機能の使い方をわかりやすく解説します")
 
-    # ログイン情報の設定
-    _buzz_login = load_json(BUZZ_LOGIN_FILE) if os.path.exists(BUZZ_LOGIN_FILE) else {}
-    with st.expander("🔑 ログイン設定", expanded=not _buzz_login):
-        _bz_user = st.text_input("Instagramユーザー名", value=_buzz_login.get("username", ""), key="bz_user")
-        _bz_pass = st.text_input("パスワード", value=_buzz_login.get("password", ""), type="password", key="bz_pass")
-        if st.button("💾 保存", key="bz_save_login"):
-            if _bz_user.strip() and _bz_pass.strip():
-                save_json(BUZZ_LOGIN_FILE, {"username": _bz_user.strip(), "password": _bz_pass.strip()})
-                _buzz_login = {"username": _bz_user.strip(), "password": _bz_pass.strip()}
-                st.success("✅ ログイン情報を保存しました")
-            else:
-                st.warning("ユーザー名とパスワードを入力してください")
+    # --- 1. アカウント管理 ---
+    st.markdown("---")
+    st.subheader("1. アカウント管理")
+    st.markdown("""
+    Threadsアカウントを登録・管理するページです。
 
-    # スクレイピング実行
-    if not _buzz_login.get("username"):
-        st.info("まずログイン設定からInstagramアカウントを登録してください")
-    else:
-        _bz_c1, _bz_c2 = st.columns(2)
-        _bz_scroll = _bz_c1.selectbox("スクロール回数", [3, 5, 10, 15], index=1, key="bz_scroll")
-        _bz_min_likes = _bz_c2.number_input("最低いいね数", min_value=0, value=50, step=10, key="bz_min_likes")
+    **アカウントの追加方法：**
+    1. 「Add New Account」を開く
+    2. Threads（Instagram）のアクセストークンを入力
+    3. アプリID・アプリシークレットを入力
+    4. 「保存」をクリック
 
-        if st.button("🔍 バズ投稿を取得", key="bz_fetch"):
-            with st.spinner("Threadsフィードをスクレイピング中... (30秒〜2分)"):
-                try:
-                    from playwright.sync_api import sync_playwright as _bz_sp
-                    import re as _bz_re
+    **アクセストークンの取得方法：**
+    - Meta for Developersでアプリを作成
+    - Threads APIの権限を追加
+    - トークンを生成してコピー
 
-                    _bz_posts = []
-                    with _bz_sp() as _pw:
-                        _br = _pw.chromium.launch(headless=True)
-                        _ctx = _br.new_context(
-                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                            viewport={"width": 1280, "height": 800}
-                        )
+    **ON/OFF切り替え：**
+    - 各アカウントの横にあるトグルで、自動投稿のON/OFFを切り替えられます
+    - OFFにするとそのアカウントの自動投稿が一時停止します
+    """)
 
-                        # Cookie復元
-                        _has_cookies = False
-                        if os.path.exists(BUZZ_COOKIE_FILE):
-                            try:
-                                _saved_cookies = load_json(BUZZ_COOKIE_FILE)
-                                if _saved_cookies:
-                                    _ctx.add_cookies(_saved_cookies)
-                                    _has_cookies = True
-                            except:
-                                pass
+    # --- 2. ポストファクトリー ---
+    st.markdown("---")
+    st.subheader("2. ポストファクトリー")
+    st.markdown("""
+    投稿を作成・スケジュール設定するメインページです。
 
-                        _pg = _ctx.new_page()
+    **投稿の作成手順：**
+    1. 上部のドロップダウンからアカウントを選択
+    2. 投稿テキストを入力（改行OK）
+    3. 画像を添付したい場合はアップロード
+    4. 投稿スケジュールを設定：
+       - **投稿間隔**：何時間おきに投稿するか
+       - **1日の投稿数**：1日に何回投稿するか
+       - **時間帯**：投稿する時間の範囲（例: 7時〜23時）
+    5. 「保存」で投稿キューに追加
 
-                        # ログイン or Cookie復元チェック
-                        _pg.goto("https://www.threads.net", wait_until="domcontentloaded", timeout=60000)
-                        _pg.wait_for_timeout(3000)
+    **便利な機能：**
+    - **リピート投稿**：同じ画像で複数パターンのテキストをローテーション投稿
+    - **ボックス機能**：投稿テンプレートをグループ保存して一括管理
+    - **合間機能**：同一アカウントの投稿間隔を自動調整
+    """)
 
-                        # ログインが必要か判定
-                        _need_login = False
-                        try:
-                            _login_btn = _pg.query_selector("text=Log in") or _pg.query_selector("text=ログイン")
-                            if _login_btn:
-                                _need_login = True
-                        except:
-                            _need_login = True
+    # --- 3. 投稿モニター ---
+    st.markdown("---")
+    st.subheader("3. 投稿モニター")
+    st.markdown("""
+    登録した投稿の状態をリアルタイムで確認できます。
 
-                        if _need_login or not _has_cookies:
-                            st.info("ログイン中...")
-                            _pg.goto("https://www.threads.net/login", wait_until="domcontentloaded", timeout=60000)
-                            _pg.wait_for_timeout(2000)
+    **表示される情報：**
+    - 次回投稿予定時刻
+    - 本日の投稿回数 / 設定した1日の上限
+    - 最後に投稿した時刻
+    - エラーが出た場合のエラーメッセージ
 
-                            # Instagram login form
-                            try:
-                                _user_input = _pg.query_selector("input[name='username']") or _pg.query_selector("input[autocomplete='username']")
-                                _pass_input = _pg.query_selector("input[name='password']") or _pg.query_selector("input[type='password']")
-                                if _user_input and _pass_input:
-                                    _user_input.fill(_buzz_login["username"])
-                                    _pg.wait_for_timeout(500)
-                                    _pass_input.fill(_buzz_login["password"])
-                                    _pg.wait_for_timeout(500)
-                                    _login_submit = _pg.query_selector("button[type='submit']") or _pg.query_selector("div[role='button']")
-                                    if _login_submit:
-                                        _login_submit.click()
-                                        _pg.wait_for_timeout(5000)
-                                else:
-                                    st.warning("ログインフォームが見つかりません")
-                            except Exception as _le:
-                                st.warning(f"ログインエラー: {str(_le)[:100]}")
+    **操作：**
+    - **一時停止 / 再開**：個別の投稿を一時停止できます
+    - **編集**：投稿内容やスケジュールを変更
+    - **削除**：不要な投稿キューを削除
 
-                            # Cookie保存
-                            try:
-                                _cookies = _ctx.cookies()
-                                save_json(BUZZ_COOKIE_FILE, _cookies)
-                            except:
-                                pass
+    **トラブルシューティング：**
+    - エラーが表示されている場合は、アクセストークンの有効期限を確認してください
+    - トークンの自動更新は6時間ごとに実行されます
+    """)
 
-                            # フィードに戻る
-                            _pg.goto("https://www.threads.net", wait_until="domcontentloaded", timeout=60000)
-                            _pg.wait_for_timeout(3000)
+    # --- 4. リポスト ---
+    st.markdown("---")
+    st.subheader("4. リポスト")
+    st.markdown("""
+    他のユーザーの投稿を自動でリポスト（再投稿）する機能です。
 
-                        # スクロールしてフィード読み込み
-                        import random as _bz_rand
-                        for _si in range(_bz_scroll):
-                            _pg.evaluate("window.scrollBy(0, 1200)")
-                            _pg.wait_for_timeout(_bz_rand.randint(2000, 4000))
+    **設定方法：**
+    1. リポストしたい投稿のURLを入力
+    2. リポストに使うアカウントを選択
+    3. スケジュール（即時 or 予約）を設定
+    4. 「実行」をクリック
 
-                        # 投稿を取得
-                        _articles = _pg.query_selector_all("div[data-pressable-container='true']")
-                        if not _articles:
-                            _articles = _pg.query_selector_all("article")
+    **ボックス機能：**
+    - 複数のアカウントをグループ化して一括リポスト
+    - ボックスを保存しておけば、次回から選択するだけでOK
 
-                        for _art in _articles:
-                            try:
-                                _txt = _art.inner_text()
-                                _lines = [l.strip() for l in _txt.split("\n") if l.strip()]
+    **注意事項：**
+    - リポストは元の投稿が存在している間のみ有効です
+    - 短時間に大量のリポストを行うとアカウントが制限される可能性があります
+    """)
 
-                                # ユーザー名を取得
-                                _post_user = ""
-                                for _l in _lines:
-                                    if _bz_re.match(r'^[a-zA-Z0-9_.]+$', _l) and len(_l) < 30 and len(_l) > 2:
-                                        _post_user = _l
-                                        break
+    # --- 5. 引用投稿 ---
+    st.markdown("---")
+    st.subheader("5. 引用投稿")
+    st.markdown("""
+    他のユーザーの投稿を引用して、自分のコメント付きで投稿する機能です。
 
-                                # いいね数を取得
-                                _likes = 0
-                                for _l in _lines:
-                                    # "1,234" or "1.2K" or "15K" patterns
-                                    _m = _bz_re.match(r'^([\d,]+)$', _l)
-                                    if _m:
-                                        _likes = max(_likes, int(_m.group(1).replace(",", "")))
-                                    _m2 = _bz_re.match(r'^([\d.]+)[KkMm]$', _l)
-                                    if _m2:
-                                        _val = float(_m2.group(1))
-                                        if _l[-1] in 'Kk':
-                                            _likes = max(_likes, int(_val * 1000))
-                                        elif _l[-1] in 'Mm':
-                                            _likes = max(_likes, int(_val * 1000000))
+    **設定方法：**
+    1. 引用元の投稿URLを入力
+    2. 引用コメント（自分のテキスト）を入力
+    3. 投稿に使うアカウントを選択
+    4. 「投稿」をクリック
 
-                                # コンテンツテキスト抽出
-                                _skip_words = {"Threads", "Replies", "Reposts", "Pinned", "Follow", "Following",
-                                               "Translate", "More", "Reply", "Like", "Share", "Verified",
-                                               "Log in", "Sign up", "Mention", "Comment", "Repost", "おすすめ",
-                                               "フォロー中", "いいね", "返信", "シェア", "翻訳", "もっと見る"}
-                                _content_lines = []
-                                for _l in _lines:
-                                    if len(_l) <= 1:
-                                        continue
-                                    if _l in _skip_words:
-                                        continue
-                                    if _l == _post_user:
-                                        continue
-                                    if _bz_re.match(r'^[a-zA-Z0-9_.]+$', _l) and len(_l) < 30:
-                                        continue
-                                    if _bz_re.match(r'^[\d,.]+[KMkm]?$', _l):
-                                        continue
-                                    if _bz_re.match(r'^\d+[hmd]$|^\d{1,2}/\d{1,2}|^\d+\s*(時間|分|日|秒)', _l):
-                                        continue
-                                    if _bz_re.search(r'(TranslateLike|Like\d+Comment|Comment\d+Repost|RepostShare)', _l):
-                                        continue
-                                    if _bz_re.match(r'^[a-zA-Z0-9_.]+\d+[hmd]', _l):
-                                        continue
-                                    if _bz_re.match(r'^[a-zA-Z0-9_.]+More$', _l):
-                                        continue
-                                    _content_lines.append(_l)
+    **ボックス機能：**
+    - リポストと同様に、複数アカウントをグループ化できます
+    - 同じ投稿を複数アカウントから一括引用投稿が可能
 
-                                _post_text = "\n".join(_content_lines[:8])
-                                if len(_post_text) < 5:
-                                    continue
-                                if _likes < _bz_min_likes:
-                                    continue
+    **活用のコツ：**
+    - バズっている投稿を引用すると、自分の投稿も注目されやすくなります
+    - 引用コメントは短くてインパクトのあるものが効果的です
+    """)
 
-                                # パーマリンク
-                                _permalink = ""
-                                _links = _art.query_selector_all("a[href*='/post/']")
-                                for _lnk in _links:
-                                    _href = _lnk.get_attribute("href") or ""
-                                    if "/post/" in _href:
-                                        _permalink = f"https://www.threads.net{_href}" if _href.startswith("/") else _href
-                                        break
+    # --- サポート ---
+    st.markdown("---")
+    st.subheader("💡 よくある質問")
+    st.markdown("""
+    **Q. トークンの有効期限が切れたら？**
+    → 長期トークン（60日）は自動更新されます。更新に失敗した場合は投稿モニターにエラーが表示されるので、手動でトークンを再発行してください。
 
-                                # 画像URL
-                                _media_urls = []
-                                for _img in _art.query_selector_all("img"):
-                                    _src = _img.get_attribute("src") or ""
-                                    _alt = _img.get_attribute("alt") or ""
-                                    if _src and "cdninstagram" in _src and "profile" not in _alt.lower() and "s150x150" not in _src:
-                                        _media_urls.append(_src)
+    **Q. 投稿が実行されない場合は？**
+    → アカウントがONになっているか、時間帯の設定が正しいか確認してください。
 
-                                _bz_posts.append({
-                                    "username": f"@{_post_user}" if _post_user else "不明",
-                                    "text": _post_text,
-                                    "like_count": _likes,
-                                    "media_urls": _media_urls[:4],
-                                    "permalink": _permalink,
-                                    "scraped_at": get_jst_time().isoformat()
-                                })
-                            except:
-                                pass
+    **Q. 画像付き投稿がエラーになる場合は？**
+    → 画像のファイルサイズが大きすぎる可能性があります。5MB以下の画像を使用してください。
 
-                        # Cookie保存（更新）
-                        try:
-                            _cookies = _ctx.cookies()
-                            save_json(BUZZ_COOKIE_FILE, _cookies)
-                        except:
-                            pass
-
-                        _pg.close()
-                        _br.close()
-
-                    # いいね順にソート
-                    _bz_posts.sort(key=lambda x: x.get("like_count", 0), reverse=True)
-
-                    if _bz_posts:
-                        # 既存データとマージ（重複排除）
-                        _existing = load_json(BUZZ_POSTS_FILE) if os.path.exists(BUZZ_POSTS_FILE) else []
-                        _existing_links = set(p.get("permalink", "") for p in _existing if p.get("permalink"))
-                        _new_posts = [p for p in _bz_posts if p.get("permalink") and p["permalink"] not in _existing_links]
-                        _all_buzz = _new_posts + _existing
-                        save_json(BUZZ_POSTS_FILE, _all_buzz[:200])  # 最大200件保持
-                        st.session_state.buzz_results = _bz_posts
-                        st.success(f"✅ {len(_bz_posts)}件のバズ投稿を取得（新規{len(_new_posts)}件）")
-                    else:
-                        st.warning("条件に合う投稿が見つかりませんでした（いいね数フィルタを下げてみてください）")
-
-                except Exception as _e:
-                    st.error(f"エラー: {str(_e)[:200]}")
-
-        # 結果表示
-        _display_posts = st.session_state.get("buzz_results", [])
-        if not _display_posts:
-            _display_posts = load_json(BUZZ_POSTS_FILE) if os.path.exists(BUZZ_POSTS_FILE) else []
-
-        if _display_posts:
-            st.markdown("---")
-            st.subheader(f"🔥 バズ投稿一覧（{len(_display_posts)}件）")
-
-            for _bpi, _bp in enumerate(_display_posts[:50]):
-                _bp_user = _bp.get("username", "不明")
-                _bp_text = _bp.get("text", "")
-                _bp_likes = _bp.get("like_count", 0)
-                _bp_media = _bp.get("media_urls", [])
-                _bp_link = _bp.get("permalink", "")
-                _bp_date = _bp.get("scraped_at", "")[:16]
-
-                st.markdown("---")
-                _bpc1, _bpc2 = st.columns([4, 1])
-                _bpc1.write(f"**#{_bpi+1}** {_bp_user} | ❤ **{_bp_likes:,}** | 取得: {_bp_date}")
-                if _bp_link:
-                    _bpc2.link_button("🔗 開く", _bp_link)
-                st.text(_bp_text[:300])
-
-                # 画像プレビュー
-                if _bp_media:
-                    _img_cols = st.columns(min(len(_bp_media), 4))
-                    for _mi, _mu in enumerate(_bp_media[:4]):
-                        try:
-                            _img_cols[_mi].image(_mu, width=150)
-                        except:
-                            pass
-
-        # クリアボタン
-        if st.button("🗑️ 履歴クリア", key="bz_clear"):
-            save_json(BUZZ_POSTS_FILE, [])
-            st.session_state.buzz_results = []
-            st.rerun()
+    **Q. アカウントが凍結された場合は？**
+    → 投稿頻度を下げて、時間帯を広く設定してください。1アカウントあたり1日3〜5投稿が安全な目安です。
+    """)
