@@ -1,6 +1,7 @@
 #!/bin/bash
 # ========================================
 # Threads Auto Master Pro - 統合インストーラー
+# SaaS マルチユーザー対応版
 # すべてのセットアップを1コマンドで完了
 # ========================================
 set -e
@@ -11,6 +12,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo ""
 echo "============================================"
 echo "  Threads Auto Master Pro - 統合インストーラー"
+echo "  (SaaS マルチユーザー版)"
 echo "============================================"
 echo ""
 echo "📁 インストールディレクトリ: $BASE_DIR"
@@ -46,35 +48,67 @@ if [ -z "$SERVER_IP" ]; then
 fi
 echo "✅ サーバーIP: $SERVER_IP"
 
-# --- 6. IMAGE_BASE_URL自動設定 ---
+# --- 6. サーバー設定ファイル作成 ---
+echo ""
+echo "🔧 サーバー設定ファイル作成中..."
+echo "SERVER_IP=$SERVER_IP" > "$BASE_DIR/server_config.env"
+echo "✅ server_config.env 作成完了"
+
+# --- 7. IMAGE_BASE_URL自動設定 ---
 echo ""
 echo "🔧 IMAGE_BASE_URL を自動設定中..."
-# my_bot.py
-sed -i "s|IMAGE_BASE_URL = \"http://YOUR_SERVER_IP/images\"|IMAGE_BASE_URL = \"http://${SERVER_IP}/images\"|g" "$BASE_DIR/my_bot.py" || true
-# worker.py (IMAGE_BASE_URL and IMAGE_BASE_URL_HTTP)
-sed -i "s|IMAGE_BASE_URL_HTTP = \"http://YOUR_SERVER_IP/images\"|IMAGE_BASE_URL_HTTP = \"http://${SERVER_IP}/images\"|g" "$BASE_DIR/worker.py" || true
-sed -i "s|IMAGE_BASE_URL = \"http://YOUR_SERVER_IP/images\"|IMAGE_BASE_URL = \"http://${SERVER_IP}/images\"|g" "$BASE_DIR/worker.py" || true
+# my_bot.py (per-user path with {user['id']})
+sed -i "s|http://YOUR_SERVER_IP/images|http://${SERVER_IP}/images|g" "$BASE_DIR/my_bot.py" || true
+# worker.py
+sed -i "s|http://YOUR_SERVER_IP/images|http://${SERVER_IP}/images|g" "$BASE_DIR/worker.py" || true
 echo "✅ IMAGE_BASE_URL → http://${SERVER_IP}/images に設定完了"
 
-# --- 7. 画像ディレクトリ作成 ---
+# --- 8. データディレクトリ作成 ---
 echo ""
-echo "📂 画像ディレクトリ作成中..."
+echo "📂 ディレクトリ作成中..."
+mkdir -p "$BASE_DIR/data"
 mkdir -p "$BASE_DIR/images"
+echo "✅ $BASE_DIR/data 作成完了"
 echo "✅ $BASE_DIR/images 作成完了"
 
-# --- 8. Nginx設定 ---
+# --- 9. データベース初期化 ---
+echo ""
+echo "🗄️ データベース初期化中..."
+cd "$BASE_DIR" && python3 -c "from user_manager import init_db; init_db()"
+echo "✅ データベース初期化完了 (デフォルト管理者: admin / admin123)"
+
+# --- 10. Nginx設定 ---
 echo ""
 echo "🌍 Nginx設定中..."
-cat > /etc/nginx/sites-available/images << NGINX
+cat > /etc/nginx/sites-available/threads << NGINX
 server {
     listen 80;
     server_name _;
 
+    # Per-user images: /images/{user_id}/{filename}
+    location ~ ^/images/([a-f0-9-]+)/(.+)$ {
+        alias $BASE_DIR/data/\$1/images/\$2;
+    }
+
+    # Legacy images (backward compatibility)
     location /images/ {
         alias $BASE_DIR/images/;
         autoindex off;
     }
 
+    # Admin panel (localhost only via proxy)
+    location /admin/ {
+        proxy_pass http://127.0.0.1:8502/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Main Streamlit app
     location / {
         proxy_pass http://127.0.0.1:8501;
         proxy_http_version 1.1;
@@ -82,16 +116,19 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 NGINX
 
-ln -sf /etc/nginx/sites-available/images /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/threads /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/images
 nginx -t && systemctl restart nginx
 echo "✅ Nginx設定完了"
 
-# --- 9. Streamlit設定 ---
+# --- 11. Streamlit設定 ---
 echo ""
 echo "⚙️  Streamlit設定中..."
 mkdir -p ~/.streamlit
@@ -106,13 +143,13 @@ base = "dark"
 TOML
 echo "✅ Streamlit設定完了"
 
-# --- 10. シェルスクリプトに実行権限付与 ---
+# --- 12. シェルスクリプトに実行権限付与 ---
 echo ""
 echo "🔑 実行権限設定中..."
 find "$BASE_DIR" -name "*.sh" -exec chmod +x {} \;
 echo "✅ .shファイルに実行権限付与完了"
 
-# --- 11. systemdサービス作成 ---
+# --- 13. systemdサービス作成 ---
 echo ""
 echo "🔧 systemdサービス作成中..."
 
@@ -135,6 +172,7 @@ ExecStart=/usr/local/bin/streamlit run $BASE_DIR/my_bot.py --server.port=8501 --
 Restart=always
 RestartSec=10
 Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=$BASE_DIR/server_config.env
 
 [Install]
 WantedBy=multi-user.target
@@ -154,6 +192,7 @@ ExecStart=/usr/bin/python3 $BASE_DIR/worker.py
 Restart=always
 RestartSec=10
 Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=$BASE_DIR/server_config.env
 
 [Install]
 WantedBy=multi-user.target
@@ -173,14 +212,35 @@ ExecStart=/usr/bin/python3 $BASE_DIR/storage_watchdog.py
 Restart=always
 RestartSec=10
 Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=$BASE_DIR/server_config.env
 
 [Install]
 WantedBy=multi-user.target
 SVCEOF
 
-echo "✅ systemdサービス作成完了"
+# threads-admin サービス
+cat > /etc/systemd/system/threads-admin.service << SVCEOF
+[Unit]
+Description=Threads Auto Master Admin Panel
+After=network.target
 
-# --- 12. Cron設定 ---
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$BASE_DIR
+ExecStart=/usr/local/bin/streamlit run $BASE_DIR/admin.py --server.port=8502 --server.address=127.0.0.1 --server.headless=true
+Restart=always
+RestartSec=10
+Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=$BASE_DIR/server_config.env
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+echo "✅ systemdサービス作成完了 (web, worker, storage-watchdog, admin)"
+
+# --- 14. Cron設定 ---
 echo ""
 echo "⏰ Cron設定中..."
 ( crontab -l 2>/dev/null | grep -v 'watchdog.sh' | grep -v 'midnight_cleanup.py' ; \
@@ -189,16 +249,16 @@ echo "⏰ Cron設定中..."
 ) | crontab -
 echo "✅ Cron設定完了"
 
-# --- 13. サービス起動 ---
+# --- 15. サービス起動 ---
 echo ""
 echo "🚀 サービス起動中..."
 systemctl daemon-reload
-systemctl enable threads-web threads-worker threads-storage-watchdog
-systemctl restart threads-web threads-worker threads-storage-watchdog
+systemctl enable threads-web threads-worker threads-storage-watchdog threads-admin
+systemctl restart threads-web threads-worker threads-storage-watchdog threads-admin
 sleep 3
 echo "✅ サービス起動完了"
 
-# --- 14. ステータス確認 ---
+# --- 16. ステータス確認 ---
 echo ""
 echo "============================================"
 echo "  📊 サービスステータス"
@@ -220,6 +280,7 @@ check_service() {
 check_service "threads-web" "Web UI"
 check_service "threads-worker" "Worker"
 check_service "threads-storage-watchdog" "Storage Watchdog"
+check_service "threads-admin" "Admin Panel"
 check_service "nginx" "Nginx"
 
 echo ""
@@ -238,13 +299,23 @@ else
 fi
 echo "============================================"
 echo ""
-echo "  🌐 アクセスURL: http://${SERVER_IP}"
+echo "  🌐 Web UI:       http://${SERVER_IP}/"
+echo "  🔧 管理パネル:   http://${SERVER_IP}/admin/"
+echo ""
+echo "  👤 デフォルト管理者ログイン:"
+echo "     ユーザー名: admin"
+echo "     パスワード: admin123"
+echo ""
+echo "  ⚠️  セキュリティ警告: 管理者パスワードを直ちに変更してください！"
+echo "     管理パネル (http://${SERVER_IP}/admin/) からパスワードを変更できます"
 echo ""
 echo "  便利なコマンド:"
 echo "    systemctl status threads-web"
 echo "    systemctl status threads-worker"
 echo "    systemctl status threads-storage-watchdog"
+echo "    systemctl status threads-admin"
 echo "    journalctl -u threads-web -f"
 echo "    journalctl -u threads-worker -f"
+echo "    journalctl -u threads-admin -f"
 echo "============================================"
 echo ""

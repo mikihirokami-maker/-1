@@ -13,6 +13,12 @@ if ! pgrep -f "streamlit run $BASE_DIR/my_bot.py" > /dev/null; then
     echo "$(date) streamlit restarted" >> "$BASE_DIR/watchdog.log"
 fi
 
+# admin panel check (streamlit on port 8502)
+if ! pgrep -f "streamlit run $BASE_DIR/admin_panel.py" > /dev/null; then
+    nohup streamlit run "$BASE_DIR/admin_panel.py" --server.port 8502 --server.address 0.0.0.0 --server.headless true > /dev/null 2>&1 &
+    echo "$(date) admin panel restarted" >> "$BASE_DIR/watchdog.log"
+fi
+
 # worker check - start via script (bash flock prevents duplicates)
 if ! pgrep -f 'python3.*worker\.py' > /dev/null; then
     nohup "$BASE_DIR/start_worker.sh" > /dev/null 2>&1 &

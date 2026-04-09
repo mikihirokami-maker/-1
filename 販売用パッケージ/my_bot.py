@@ -14,6 +14,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- Page Config ---
 st.set_page_config(page_title="Threads Auto Master Pro", layout="wide", page_icon="robot")
 
+from auth import check_auth, show_user_sidebar
+from user_manager import init_db, get_user_data_dir, PLANS
+
+# データベース初期化
+init_db()
+
+# 認証チェック（未ログインならログイン画面を表示して停止）
+user = check_auth()
+
 # --- CSS ---
 st.markdown("""
 <style>
@@ -153,15 +162,16 @@ def get_proxy(account=None):
 
 # --- Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ACCOUNTS_FILE = os.path.join(BASE_DIR, "accounts.json")
-STORAGE_FILE = os.path.join(BASE_DIR, "storage.json")
-IMAGE_DIR = os.path.join(BASE_DIR, "images")
-COMPETITORS_FILE = os.path.join(BASE_DIR, "competitors.json")
-BOX_TEMPLATES_FILE = os.path.join(BASE_DIR, "box_templates.json")
-REPOST_BOXES_FILE = os.path.join(BASE_DIR, "repost_boxes.json")
-SCHEDULED_REPOSTS_FILE = os.path.join(BASE_DIR, "scheduled_reposts.json")
-REPEAT_POSTS_FILE = os.path.join(BASE_DIR, "repeat_posts.json")
-REPEAT_TEMPLATES_FILE = os.path.join(BASE_DIR, "repeat_templates.json")
+USER_DATA_DIR = get_user_data_dir(user['id'])
+ACCOUNTS_FILE = os.path.join(USER_DATA_DIR, "accounts.json")
+STORAGE_FILE = os.path.join(USER_DATA_DIR, "storage.json")
+IMAGE_DIR = os.path.join(USER_DATA_DIR, "images")
+COMPETITORS_FILE = os.path.join(USER_DATA_DIR, "competitors.json")
+BOX_TEMPLATES_FILE = os.path.join(USER_DATA_DIR, "box_templates.json")
+REPOST_BOXES_FILE = os.path.join(USER_DATA_DIR, "repost_boxes.json")
+SCHEDULED_REPOSTS_FILE = os.path.join(USER_DATA_DIR, "scheduled_reposts.json")
+REPEAT_POSTS_FILE = os.path.join(USER_DATA_DIR, "repeat_posts.json")
+REPEAT_TEMPLATES_FILE = os.path.join(USER_DATA_DIR, "repeat_templates.json")
 if not os.path.exists(IMAGE_DIR):
     os.makedirs(IMAGE_DIR)
 
@@ -610,8 +620,8 @@ def test_connection_only(account, text, image_files=None, saved_image_paths=None
 def _upload_to_local(file_data_or_path, is_path=False):
     """画像をローカルに保存してYOUR_SERVER_IPのURLを返す"""
     import hashlib
-    IMAGE_DIR = "/root/images"
-    IMAGE_BASE_URL = "http://YOUR_SERVER_IP/images"
+    IMAGE_DIR = f"/root/images/{user['id']}"
+    IMAGE_BASE_URL = f"http://YOUR_SERVER_IP/images/{user['id']}"
     os.makedirs(IMAGE_DIR, exist_ok=True)
     try:
         if is_path:
@@ -812,7 +822,9 @@ if 'post_queue' not in st.session_state:
 
 # ===================== Main UI =====================
 
-MEMO_FILE = os.path.join(BASE_DIR, "memo.txt")
+show_user_sidebar(user)
+
+MEMO_FILE = os.path.join(USER_DATA_DIR, "memo.txt")
 _memo_col1, _memo_col2 = st.columns([3, 1])
 _memo_col1.title("THREADS AUTO MASTER (Complete Edition)")
 with _memo_col2.popover("📝 メモ帳", use_container_width=True):
@@ -899,6 +911,10 @@ with tab1:
                         st.caption(f"{ea['name']}: Slot {slot} ({profile['name']})")
 
             if st.button("Save", key="save_new_acc"):
+                max_accounts = user['max_accounts']
+                if len(st.session_state.accounts) >= max_accounts:
+                    st.error(f"アカウント上限（{max_accounts}個）に達しています。プランをアップグレードしてください。")
+                    st.stop()
                 # Reload from file to get latest slot data
                 st.session_state.accounts = load_json(ACCOUNTS_FILE)
                 # First fix any existing accounts missing ip_slot

@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import logging
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCK_FILE = os.path.join(BASE_DIR, "worker.lock")
@@ -23,6 +24,10 @@ except IOError:
     print("Another worker is already running. Exiting.")
     import sys
     sys.exit(0)
+from user_manager import get_all_active_users, check_and_disable_expired_users
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
 ACCOUNTS_FILE = os.path.join(BASE_DIR, "accounts.json")
 STORAGE_FILE = os.path.join(BASE_DIR, "storage.json")
 SCHEDULED_REPOSTS_FILE = os.path.join(BASE_DIR, "scheduled_reposts.json")
@@ -30,6 +35,18 @@ REPEAT_POSTS_FILE = os.path.join(BASE_DIR, "repeat_posts.json")
 TOKEN_REFRESH_FILE = os.path.join(BASE_DIR, "token_refresh.json")
 ERROR_LOG_FILE = os.path.join(BASE_DIR, "error_log.json")
 MAX_CONSECUTIVE_RETRIES = 5  # Give up after this many retries per post
+
+
+def get_user_paths(user_dir):
+    """ユーザーごとのファイルパスを返す"""
+    return {
+        'accounts': os.path.join(user_dir, "accounts.json"),
+        'storage': os.path.join(user_dir, "storage.json"),
+        'scheduled_reposts': os.path.join(user_dir, "scheduled_reposts.json"),
+        'repeat_posts': os.path.join(user_dir, "repeat_posts.json"),
+        'token_refresh': os.path.join(user_dir, "token_refresh.json"),
+        'error_log': os.path.join(user_dir, "error_log.json"),
+    }
 
 # Thread-safe file lock
 _file_lock = threading.Lock()
@@ -1029,214 +1046,241 @@ def process_repeat_posts():
         print("[Repeat Post] State updated")
 
 
+def process_user(paths):
+    """1ユーザー分の全処理を実行する。グローバル変数を切り替えて既存コードを再利用。"""
+    global ACCOUNTS_FILE, STORAGE_FILE, SCHEDULED_REPOSTS_FILE, REPEAT_POSTS_FILE, TOKEN_REFRESH_FILE, ERROR_LOG_FILE
+    ACCOUNTS_FILE = paths['accounts']
+    STORAGE_FILE = paths['storage']
+    SCHEDULED_REPOSTS_FILE = paths['scheduled_reposts']
+    REPEAT_POSTS_FILE = paths['repeat_posts']
+    TOKEN_REFRESH_FILE = paths['token_refresh']
+    ERROR_LOG_FILE = paths['error_log']
+
+    now = get_jst_time()
+
+    # Check token refresh every 6 hours (per-user state managed via file)
+    try:
+        token_data = load_json(TOKEN_REFRESH_FILE)
+    except:
+        token_data = []
+    accounts = load_json(ACCOUNTS_FILE)
+    if accounts:
+        _orig_acc_len = len(accounts)
+        accounts = refresh_tokens_if_needed(accounts, _orig_acc_len)
+
+    storage = load_json(STORAGE_FILE)
+    accounts = load_json(ACCOUNTS_FILE)
+    orig_storage_len = len(storage)
+    orig_accounts_len = len(accounts)
+    today_str = now.strftime('%Y-%m-%d')
+
+    # auto_on_at タイマーチェック: 時間が来たらアカウントをONにする
+    _acc_changed = False
+    for _acc in accounts:
+        _aon = _acc.get('auto_on_at')
+        if _aon and not _acc.get('active', True):
+            try:
+                _aon_dt = datetime.fromisoformat(_aon)
+                if now >= _aon_dt:
+                    _acc['active'] = True
+                    _acc.pop('auto_on_at', None)
+                    _acc_changed = True
+                    print(f"  [Timer ON] {_acc.get('name', _acc.get('username', '?'))} activated")
+            except:
+                pass
+    if _acc_changed:
+        # 最新のaccounts.jsonを再読み込みしてからタイマー変更だけ適用（削除済みアカウント復活防止）
+        _fresh_accs = load_json(ACCOUNTS_FILE)
+        _fresh_map = {a.get('username'): a for a in _fresh_accs}
+        for _acc in accounts:
+            _u = _acc.get('username', '')
+            if _u in _fresh_map and _acc.get('active') and not _fresh_map[_u].get('active'):
+                _fresh_map[_u]['active'] = True
+                _fresh_map[_u].pop('auto_on_at', None)
+        save_json(ACCOUNTS_FILE, list(_fresh_map.values()))
+
+    # Build account-level last_posted_at map for 合間機能 (username-based)
+    acc_last_posted = {}
+    for si, sp in enumerate(storage):
+        _sp_uname = sp.get('acc_username', '')
+        if not _sp_uname:
+            # fallback for old data
+            _sp_idx = sp.get('acc_idx', -1)
+            if 0 <= _sp_idx < len(accounts):
+                _sp_uname = accounts[_sp_idx].get('username', '')
+        lp = sp.get('last_posted_at')
+        if _sp_uname and lp:
+            try:
+                lp_time = datetime.fromisoformat(lp)
+                if _sp_uname not in acc_last_posted or lp_time > acc_last_posted[_sp_uname]:
+                    acc_last_posted[_sp_uname] = lp_time
+            except:
+                pass
+
+    # Find all posts that need to run now
+    ready_tasks = []
+    for i, p in enumerate(storage):
+        # username-based lookup (with acc_idx fallback)
+        _p_uname = p.get('acc_username')
+        if _p_uname:
+            _p_real_idx, acc = find_account_by_username(accounts, _p_uname)
+            if acc is None:
+                continue
+        else:
+            _p_idx = p.get('acc_idx', -1)
+            if _p_idx < 0 or _p_idx >= len(accounts):
+                continue
+            acc = accounts[_p_idx]
+            _p_uname = acc.get('username', '')
+        if not acc.get('active', True):
+            continue
+        if p.get('paused', False):
+            continue
+
+        # Reset daily counter if new day
+        if p.get('today_date', '') != today_str:
+            p['today_count'] = 0
+
+        # Duplicate prevention: skip if ANY entry for same account posted within 60 min
+        _dominated = False
+        for _dp in storage:
+            _dp_uname = _dp.get('acc_username', '')
+            if not _dp_uname and 0 <= _dp.get('acc_idx', -1) < len(accounts):
+                _dp_uname = accounts[_dp['acc_idx']].get('username', '')
+            if _dp_uname == _p_uname:
+                _dlp = _dp.get('last_posted_at')
+                if _dlp:
+                    try:
+                        if (now - datetime.fromisoformat(_dlp)).total_seconds() < 3600:
+                            _dominated = True
+                            break
+                    except:
+                        pass
+        if _dominated:
+            continue
+
+        posts_per_day = p.get('posts_per_day', 1)
+        today_count = p.get('today_count', 0)
+
+        if today_count >= posts_per_day:
+            continue
+
+        try:
+            next_run = datetime.fromisoformat(p['next_run'])
+            if now >= next_run:
+                # Check if current time is within posting time range
+                time_range = p.get('time_range', [7, 23])
+                current_hour = now.hour
+                range_start = time_range[0]
+                range_end = time_range[1] + 1  # Include the end hour (e.g., 21:59)
+                if range_start <= current_hour < range_end:
+                    # 合間機能: check cross-entry interval (ボックス24時間=fixed_timeありはスキップ)
+                    post_interval = p.get('post_interval')
+                    if post_interval and not p.get('fixed_time') and _p_uname in acc_last_posted:
+                        last_post_time = acc_last_posted[_p_uname]
+                        hours_since = (now - last_post_time).total_seconds() / 3600
+                        if hours_since < post_interval:
+                            # Not enough time passed, reschedule
+                            wait_until = last_post_time + timedelta(hours=post_interval)
+                            p['next_run'] = wait_until.isoformat()
+                            print(f"  [{now.strftime('%H:%M')}] {acc.get('name','?')[:15]}: 合間制限 ({hours_since:.1f}h < {post_interval}h) → {wait_until.strftime('%H:%M')}まで待機")
+                            continue
+                    ready_tasks.append((i, p))
+                else:
+                    # Outside time range: reschedule to tomorrow's range
+                    tomorrow = now + timedelta(days=1)
+                    new_next = tomorrow.replace(
+                        hour=random.randint(range_start, min(range_start + 2, time_range[1])),
+                        minute=random.randint(0, 59), second=0
+                    )
+                    p['next_run'] = new_next.isoformat()
+                    print(f"  [{now.strftime('%H:%M')}] {acc.get('name','?')[:15]}: time range outside ({range_start}-{time_range[1]}h) → rescheduled to {new_next.strftime('%m/%d %H:%M')}")
+        except:
+            continue
+
+    # Save any rescheduled posts (outside time range)
+    safe_save_storage(storage, orig_storage_len)
+
+    if ready_tasks:
+        print(f"[{now.strftime('%H:%M:%S')}] {len(ready_tasks)} posts ready, processing...")
+
+        # Set next_run to 15min later for all tasks (safety lock)
+        for idx, p in ready_tasks:
+            p['next_run'] = (now + timedelta(minutes=15)).isoformat()
+        safe_save_storage(storage, orig_storage_len)
+
+        # Process in parallel (up to MAX_WORKERS)
+        results = []
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(ready_tasks))) as executor:
+            futures = {}
+            for idx, p in ready_tasks:
+                future = executor.submit(process_single_post, p, idx, accounts)
+                futures[future] = idx
+
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    print(f"  Thread error: {e}")
+                    traceback.print_exc()
+
+        # Apply results back
+        storage_updated = False
+        acc_updated = False
+        for p_idx, updated_p, updated_acc, did_post in results:
+            if did_post:
+                storage[p_idx] = updated_p
+                storage_updated = True
+                if updated_acc:
+                    _uname = updated_acc.get('username', '')
+                    _ridx, _ = find_account_by_username(accounts, _uname)
+                    if _ridx >= 0:
+                        accounts[_ridx] = updated_acc
+                    acc_updated = True
+
+        if storage_updated:
+            safe_save_storage(storage, orig_storage_len)
+        if acc_updated:
+            safe_save_accounts(accounts, orig_accounts_len)
+
+    # Check scheduled reposts
+    try:
+        process_scheduled_reposts()
+    except Exception as e:
+        print(f'Scheduled repost error: {e}')
+
+    # Check repeat posts
+    try:
+        process_repeat_posts()
+    except Exception as e:
+        print(f'Repeat post error: {e}')
+
+
 def main():
     now = get_jst_time()
-    print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] worker.py started (parallel edition, max {MAX_WORKERS} threads)")
-    last_token_check = None
+    print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] worker.py started (multi-user edition, max {MAX_WORKERS} threads)")
 
     while True:
         try:
-            now = get_jst_time()
+            # 期限切れユーザーを自動無効化
+            check_and_disable_expired_users()
 
-            # Check token refresh every 6 hours
-            if last_token_check is None or (now - last_token_check).total_seconds() > 21600:
-                accounts = load_json(ACCOUNTS_FILE)
-                _orig_acc_len = len(accounts)
-                accounts = refresh_tokens_if_needed(accounts, _orig_acc_len)
-                last_token_check = now
-
-            storage = load_json(STORAGE_FILE)
-            accounts = load_json(ACCOUNTS_FILE)
-            orig_storage_len = len(storage)
-            orig_accounts_len = len(accounts)
-            today_str = now.strftime('%Y-%m-%d')
-
-            # auto_on_at タイマーチェック: 時間が来たらアカウントをONにする
-            _acc_changed = False
-            for _acc in accounts:
-                _aon = _acc.get('auto_on_at')
-                if _aon and not _acc.get('active', True):
-                    try:
-                        _aon_dt = datetime.fromisoformat(_aon)
-                        if now >= _aon_dt:
-                            _acc['active'] = True
-                            _acc.pop('auto_on_at', None)
-                            _acc_changed = True
-                            print(f"  [Timer ON] {_acc.get('name', _acc.get('username', '?'))} activated")
-                    except:
-                        pass
-            if _acc_changed:
-                # 最新のaccounts.jsonを再読み込みしてからタイマー変更だけ適用（削除済みアカウント復活防止）
-                _fresh_accs = load_json(ACCOUNTS_FILE)
-                _fresh_map = {a.get('username'): a for a in _fresh_accs}
-                for _acc in accounts:
-                    _u = _acc.get('username', '')
-                    if _u in _fresh_map and _acc.get('active') and not _fresh_map[_u].get('active'):
-                        _fresh_map[_u]['active'] = True
-                        _fresh_map[_u].pop('auto_on_at', None)
-                save_json(ACCOUNTS_FILE, list(_fresh_map.values()))
-
-            # Build account-level last_posted_at map for 合間機能 (username-based)
-            acc_last_posted = {}
-            for si, sp in enumerate(storage):
-                _sp_uname = sp.get('acc_username', '')
-                if not _sp_uname:
-                    # fallback for old data
-                    _sp_idx = sp.get('acc_idx', -1)
-                    if 0 <= _sp_idx < len(accounts):
-                        _sp_uname = accounts[_sp_idx].get('username', '')
-                lp = sp.get('last_posted_at')
-                if _sp_uname and lp:
-                    try:
-                        lp_time = datetime.fromisoformat(lp)
-                        if _sp_uname not in acc_last_posted or lp_time > acc_last_posted[_sp_uname]:
-                            acc_last_posted[_sp_uname] = lp_time
-                    except:
-                        pass
-
-            # Find all posts that need to run now
-            ready_tasks = []
-            for i, p in enumerate(storage):
-                # username-based lookup (with acc_idx fallback)
-                _p_uname = p.get('acc_username')
-                if _p_uname:
-                    _p_real_idx, acc = find_account_by_username(accounts, _p_uname)
-                    if acc is None:
-                        continue
-                else:
-                    _p_idx = p.get('acc_idx', -1)
-                    if _p_idx < 0 or _p_idx >= len(accounts):
-                        continue
-                    acc = accounts[_p_idx]
-                    _p_uname = acc.get('username', '')
-                if not acc.get('active', True):
+            # 全アクティブユーザーを処理
+            active_users = get_all_active_users()
+            for u in active_users:
+                user_dir = os.path.join(DATA_DIR, u['id'])
+                if not os.path.exists(user_dir):
                     continue
-                if p.get('paused', False):
-                    continue
-
-                # Reset daily counter if new day
-                if p.get('today_date', '') != today_str:
-                    p['today_count'] = 0
-
-                # Duplicate prevention: skip if ANY entry for same account posted within 60 min
-                _dominated = False
-                for _dp in storage:
-                    _dp_uname = _dp.get('acc_username', '')
-                    if not _dp_uname and 0 <= _dp.get('acc_idx', -1) < len(accounts):
-                        _dp_uname = accounts[_dp['acc_idx']].get('username', '')
-                    if _dp_uname == _p_uname:
-                        _dlp = _dp.get('last_posted_at')
-                        if _dlp:
-                            try:
-                                if (now - datetime.fromisoformat(_dlp)).total_seconds() < 3600:
-                                    _dominated = True
-                                    break
-                            except:
-                                pass
-                if _dominated:
-                    continue
-
-                posts_per_day = p.get('posts_per_day', 1)
-                today_count = p.get('today_count', 0)
-
-                if today_count >= posts_per_day:
-                    continue
-
                 try:
-                    next_run = datetime.fromisoformat(p['next_run'])
-                    if now >= next_run:
-                        # Check if current time is within posting time range
-                        time_range = p.get('time_range', [7, 23])
-                        current_hour = now.hour
-                        range_start = time_range[0]
-                        range_end = time_range[1] + 1  # Include the end hour (e.g., 21:59)
-                        if range_start <= current_hour < range_end:
-                            # 合間機能: check cross-entry interval (ボックス24時間=fixed_timeありはスキップ)
-                            post_interval = p.get('post_interval')
-                            if post_interval and not p.get('fixed_time') and _p_uname in acc_last_posted:
-                                last_post_time = acc_last_posted[_p_uname]
-                                hours_since = (now - last_post_time).total_seconds() / 3600
-                                if hours_since < post_interval:
-                                    # Not enough time passed, reschedule
-                                    wait_until = last_post_time + timedelta(hours=post_interval)
-                                    p['next_run'] = wait_until.isoformat()
-                                    print(f"  [{now.strftime('%H:%M')}] {acc.get('name','?')[:15]}: 合間制限 ({hours_since:.1f}h < {post_interval}h) → {wait_until.strftime('%H:%M')}まで待機")
-                                    continue
-                            ready_tasks.append((i, p))
-                        else:
-                            # Outside time range: reschedule to tomorrow's range
-                            tomorrow = now + timedelta(days=1)
-                            new_next = tomorrow.replace(
-                                hour=random.randint(range_start, min(range_start + 2, time_range[1])),
-                                minute=random.randint(0, 59), second=0
-                            )
-                            p['next_run'] = new_next.isoformat()
-                            print(f"  [{now.strftime('%H:%M')}] {acc.get('name','?')[:15]}: time range outside ({range_start}-{time_range[1]}h) → rescheduled to {new_next.strftime('%m/%d %H:%M')}")
-                except:
-                    continue
-
-            # Save any rescheduled posts (outside time range)
-            safe_save_storage(storage, orig_storage_len)
-
-            if ready_tasks:
-                print(f"[{now.strftime('%H:%M:%S')}] {len(ready_tasks)} posts ready, processing...")
-
-                # Set next_run to 15min later for all tasks (safety lock)
-                for idx, p in ready_tasks:
-                    p['next_run'] = (now + timedelta(minutes=15)).isoformat()
-                safe_save_storage(storage, orig_storage_len)
-
-                # Process in parallel (up to MAX_WORKERS)
-                results = []
-                with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(ready_tasks))) as executor:
-                    futures = {}
-                    for idx, p in ready_tasks:
-                        future = executor.submit(process_single_post, p, idx, accounts)
-                        futures[future] = idx
-
-                    for future in as_completed(futures):
-                        try:
-                            result = future.result()
-                            results.append(result)
-                        except Exception as e:
-                            print(f"  Thread error: {e}")
-                            traceback.print_exc()
-
-                # Apply results back
-                storage_updated = False
-                acc_updated = False
-                for p_idx, updated_p, updated_acc, did_post in results:
-                    if did_post:
-                        storage[p_idx] = updated_p
-                        storage_updated = True
-                        if updated_acc:
-                            _uname = updated_acc.get('username', '')
-                            _ridx, _ = find_account_by_username(accounts, _uname)
-                            if _ridx >= 0:
-                                accounts[_ridx] = updated_acc
-                            acc_updated = True
-
-                if storage_updated:
-                    safe_save_storage(storage, orig_storage_len)
-                if acc_updated:
-                    safe_save_accounts(accounts, orig_accounts_len)
-
+                    paths = get_user_paths(user_dir)
+                    process_user(paths)
+                except Exception as e:
+                    print(f"[{get_jst_time().strftime('%H:%M:%S')}] Error processing user {u['username']}: {e}")
+                    traceback.print_exc()
         except Exception as e:
-            print(f"[{get_jst_time().strftime('%H:%M:%S')}] Error: {e}")
+            print(f"[{get_jst_time().strftime('%H:%M:%S')}] Main loop error: {e}")
             traceback.print_exc()
-
-        
-        # Check scheduled reposts
-        try:
-            process_scheduled_reposts()
-        except Exception as e:
-            print(f'Scheduled repost error: {e}')
-
-        # Check repeat posts
-        try:
-            process_repeat_posts()
-        except Exception as e:
-            print(f'Repeat post error: {e}')
 
         time.sleep(30)
 
