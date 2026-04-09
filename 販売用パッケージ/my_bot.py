@@ -1045,6 +1045,8 @@ with tab1:
 
 # ==================== TAB 2: Post Factory ====================
 with tab2:
+    sel_username = ''
+    sel_idx = 0
     if not st.session_state.accounts:
         st.warning("Please register an account first")
     else:
@@ -1066,6 +1068,7 @@ with tab2:
                 _bk2.warning(f"⚠️ エントリ数が少なすぎます（{_count}件）")
 
         # Account selection (search + sort fused)
+        sel_username = ''
         sf1, sf2 = st.columns([3, 1])
         acc_filter = sf1.text_input("アカウント選択", placeholder="名前で絞り込み（ひらがな/カタカナ対応）", key="acc_search_t2")
         sort_mode = sf2.selectbox("並び替え", ["最新追加順", "名前順", "Slot順"], key="sort_t2")
@@ -2437,7 +2440,7 @@ with tab2:
     st.caption(f"@{sel_username} の過去投稿を取得して、リピート投稿に追加できます")
 
     _rp_past_uname_ctx = sel_username
-    _rp_past_acc_data = st.session_state.accounts[sel_idx]
+    _rp_past_acc_data = st.session_state.accounts[sel_idx] if st.session_state.accounts else {}
 
     _rp_past_col1, _rp_past_col2 = st.columns([1, 1])
     _rp_past_limit = _rp_past_col1.selectbox("取得件数", [10, 25, 50], index=1, key="rp_past_limit")
@@ -2546,7 +2549,7 @@ with tab3:
     if st.button("🧊 凍結確認", key="freeze_check_btn"):
         _frozen = []
         _check_bar = st.progress(0, text="チェック中...")
-        _total_accs = len(st.session_state.accounts)
+        _total_accs = max(len(st.session_state.accounts), 1)
         _completed = [0]
         _lock = __import__('threading').Lock()
 
@@ -3075,7 +3078,7 @@ with tab3:
     if _bz_c1.button("📊 バズチェック", key="buzz_check_btn"):
         _bz_results = []
         _bz_bar = st.progress(0, text="いいね数を取得中...")
-        _bz_total = len(st.session_state.accounts)
+        _bz_total = max(len(st.session_state.accounts), 1)
 
         def _check_buzz(_ba, _limit):
             _bn = _ba.get('name', '?')
@@ -3354,7 +3357,8 @@ with tab4:
             if _uname and _uname not in _rp_used_unames:
                 _aname = _ac.get('name', _ac.get('username', ''))
                 _star = "⭐ " if _uname in _vip_usernames else ""
-                _acc_options.append(f"{_uname}: {_rp_num}. {_star}{_aname.split(" (@")[0]}")
+                _display_name = _aname.split(" (@")[0]
+                _acc_options.append(f"{_uname}: {_rp_num}. {_star}{_display_name}")
         _rp_selected_accs = st.multiselect("アカウント選択", _acc_options, key="rp_acc_select")
 
         _rp_c1, _rp_c2 = st.columns(2)
@@ -3395,7 +3399,7 @@ with tab4:
                 _a = _uname_to_acc.get(_bu)
                 if _a:
                     _dname = _a.get('name', _bu)
-                    if _bu in set()  # オーナーアカウントのユーザー名を設定:
+                    if _bu in set():  # オーナーアカウントのユーザー名を設定
                         _dname = f"⭐{_dname}"
                     _acc_names_list.append(_dname)
                 else:
@@ -3600,7 +3604,8 @@ with tab5:
             _uname = _ac.get('username', '')
             if _uname and _uname not in _qt_used_unames:
                 _aname = _ac.get('name', _ac.get('username', ''))
-                _qt_acc_options.append(f"{_uname}: {_qt_num}. {_aname.split(" (@")[0]}")
+                _display_name_qt = _aname.split(" (@")[0]
+                _qt_acc_options.append(f"{_uname}: {_qt_num}. {_display_name_qt}")
         _qt_selected_accs = st.multiselect("アカウント選択", _qt_acc_options, key="qt_acc_select")
         st.caption(f"選択中: {len(_qt_selected_accs)}件")
 
@@ -3641,7 +3646,7 @@ with tab5:
                     _enu = _ena.get('username', '')
                     if _enu:
                         _uname_to_num_qt[_enu] = _eni
-                _edit_opts = [f"{u}: {_uname_to_num_qt.get(u, '?')}. {_uname_to_acc_qt[u].get('name', u).split(" (@")[0]}" for u in _box_unames if u in _uname_to_acc_qt and u not in {}]
+                _edit_opts = [f"{u}: {_uname_to_num_qt.get(u, '?')}. {_uname_to_acc_qt[u].get('name', u).split(' (@')[0]}" for u in _box_unames if u in _uname_to_acc_qt and u not in {}]
                 st.session_state._qt_edit_pending = {'name': _box_name, 'accs': _edit_opts}
                 st.rerun()
             if _qc3.button("🗑️", key=f"qt_del_{_bi}"):
@@ -3679,7 +3684,7 @@ with tab5:
                 for _eni, _ac in enumerate(_qt_fresh_accounts, 1):
                     _u = _ac.get('username', '')
                     if _u:
-                        _opt = f"{_u}: {_eni}. {_ac.get('name', _u).split(" (@")[0]}"
+                        _opt = f"{_u}: {_eni}. {_ac.get('name', _u).split(' (@')[0]}"
                         _qt_all_opts.append(_opt)
                         _qt_uname_opt_map[_u] = _opt
                 _qt_current = [_qt_uname_opt_map[u] for u in _edit_box.get('acc_usernames', []) if u in _qt_uname_opt_map]
@@ -3775,13 +3780,17 @@ with tab5:
     _qt_history = load_json(QUOTE_HISTORY_FILE) if os.path.exists(QUOTE_HISTORY_FILE) else []
 
     # アカウント選択（1つだけ、最新順で選べる）
-    _sq_acc_opts = [f"{i}: {a.get('name', a.get('username', ''))}" for i, a in enumerate(st.session_state.accounts)]
-    _sq_acc_opts_rev = list(reversed(_sq_acc_opts))
-    _sq_sort_col1, _sq_sort_col2 = st.columns([3, 1])
-    _sq_newest = _sq_sort_col2.checkbox("最新順", value=False, key="sq_newest")
-    _sq_display = _sq_acc_opts_rev if _sq_newest else _sq_acc_opts
-    _sq_sel = _sq_sort_col1.selectbox("アカウント選択", _sq_display, key="sq_acc_sel")
-    _sq_acc_idx = int(_sq_sel.split(":")[0])
+    _sq_acc_idx = None
+    if not st.session_state.accounts:
+        st.warning("アカウントを先に登録してください")
+    else:
+        _sq_acc_opts = [f"{i}: {a.get('name', a.get('username', ''))}" for i, a in enumerate(st.session_state.accounts)]
+        _sq_acc_opts_rev = list(reversed(_sq_acc_opts))
+        _sq_sort_col1, _sq_sort_col2 = st.columns([3, 1])
+        _sq_newest = _sq_sort_col2.checkbox("最新順", value=False, key="sq_newest")
+        _sq_display = _sq_acc_opts_rev if _sq_newest else _sq_acc_opts
+        _sq_sel = _sq_sort_col1.selectbox("アカウント選択", _sq_display, key="sq_acc_sel")
+        _sq_acc_idx = int(_sq_sel.split(":")[0])
 
     # URL入力 or 履歴から選択
     _sq_url_input = st.text_input("Threads投稿URL", placeholder="https://www.threads.net/@user/post/xxxxx", key="sq_url")
@@ -3797,44 +3806,47 @@ with tab5:
 
     _sq_c1, _sq_c2 = st.columns([2, 1])
     if _sq_c1.button("💬 引用投稿", key="sq_exec", type="primary"):
-        _sq_url_final = _sq_url_input.strip()
-        if not _sq_url_final:
-            st.warning("URLを入力してください")
-        elif not _sq_text.strip():
-            st.warning("引用コメントを入力してください")
+        if _sq_acc_idx is None:
+            st.warning("アカウントを先に登録してください")
         else:
-            _sq_uname, _sq_sc = extract_threads_username_and_shortcode(_sq_url_final)
-            if not _sq_uname or not _sq_sc:
-                st.error("❌ URLの形式が正しくありません")
+            _sq_url_final = _sq_url_input.strip()
+            if not _sq_url_final:
+                st.warning("URLを入力してください")
+            elif not _sq_text.strip():
+                st.warning("引用コメントを入力してください")
             else:
-                _sq_owner = None
-                for _a in st.session_state.accounts:
-                    if _a.get('username', '') == _sq_uname:
-                        _sq_owner = _a
-                        break
-                if not _sq_owner:
-                    st.error(f"❌ @{_sq_uname} はアカウント管理に登録されていません")
+                _sq_uname, _sq_sc = extract_threads_username_and_shortcode(_sq_url_final)
+                if not _sq_uname or not _sq_sc:
+                    st.error("❌ URLの形式が正しくありません")
                 else:
-                    with st.spinner("投稿IDを検索中..."):
-                        _sq_pid = find_threads_post_id(_sq_owner, _sq_sc)
-                    if not _sq_pid:
-                        st.error("❌ 投稿が見つかりません（削除された可能性あり）")
-                        # 履歴から削除
-                        _qt_history = [h for h in _qt_history if h.get('url', '') != _sq_url_final]
-                        save_json(QUOTE_HISTORY_FILE, _qt_history)
+                    _sq_owner = None
+                    for _a in st.session_state.accounts:
+                        if _a.get('username', '') == _sq_uname:
+                            _sq_owner = _a
+                            break
+                    if not _sq_owner:
+                        st.error(f"❌ @{_sq_uname} はアカウント管理に登録されていません")
                     else:
-                        _sq_acc = st.session_state.accounts[_sq_acc_idx]
-                        _sq_aname = _sq_acc.get('name', _sq_acc.get('username', ''))
-                        with st.spinner(f"{_sq_aname} で引用投稿中..."):
-                            _ok, _res = quote_thread(_sq_acc, _sq_pid, _sq_text.strip())
-                        if _ok:
-                            st.success(f"✅ {_sq_aname} で引用投稿しました！")
-                            # 履歴に保存（重複チェック）
-                            if not any(h.get('url') == _sq_url_final for h in _qt_history):
-                                _qt_history.insert(0, {"url": _sq_url_final, "saved": get_jst_time().strftime('%Y-%m-%d %H:%M')})
-                                save_json(QUOTE_HISTORY_FILE, _qt_history)
+                        with st.spinner("投稿IDを検索中..."):
+                            _sq_pid = find_threads_post_id(_sq_owner, _sq_sc)
+                        if not _sq_pid:
+                            st.error("❌ 投稿が見つかりません（削除された可能性あり）")
+                            # 履歴から削除
+                            _qt_history = [h for h in _qt_history if h.get('url', '') != _sq_url_final]
+                            save_json(QUOTE_HISTORY_FILE, _qt_history)
                         else:
-                            st.error(f"❌ {_sq_aname}: {str(_res)[:100]}")
+                            _sq_acc = st.session_state.accounts[_sq_acc_idx]
+                            _sq_aname = _sq_acc.get('name', _sq_acc.get('username', ''))
+                            with st.spinner(f"{_sq_aname} で引用投稿中..."):
+                                _ok, _res = quote_thread(_sq_acc, _sq_pid, _sq_text.strip())
+                            if _ok:
+                                st.success(f"✅ {_sq_aname} で引用投稿しました！")
+                                # 履歴に保存（重複チェック）
+                                if not any(h.get('url') == _sq_url_final for h in _qt_history):
+                                    _qt_history.insert(0, {"url": _sq_url_final, "saved": get_jst_time().strftime('%Y-%m-%d %H:%M')})
+                                    save_json(QUOTE_HISTORY_FILE, _qt_history)
+                            else:
+                                st.error(f"❌ {_sq_aname}: {str(_res)[:100]}")
 
     # 履歴クリアボタン
     if _qt_history and _sq_c2.button("🗑️ 履歴クリア", key="sq_clear_hist"):

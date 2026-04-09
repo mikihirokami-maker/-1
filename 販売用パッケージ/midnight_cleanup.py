@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Midnight cleanup - clears last_error and old data from storage.json"""
-import json
+import json, os
 from datetime import datetime, timedelta, timezone
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 JST = timezone(timedelta(hours=9))
 now = datetime.now(JST).replace(tzinfo=None)
 today = now.strftime("%Y-%m-%d")
 
-STORAGE = "/root/storage.json"
+STORAGE = os.path.join(BASE_DIR, "storage.json")
 try:
     with open(STORAGE, "r", encoding="utf-8") as f:
         data = json.load(f)

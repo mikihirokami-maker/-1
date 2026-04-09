@@ -3,7 +3,9 @@
 import json, shutil, time, os, logging
 from datetime import datetime, timezone, timedelta
 
-STORAGE = "/root/storage.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+STORAGE = os.path.join(BASE_DIR, "storage.json")
 AUTO_BAK = STORAGE + ".auto_bak"
 DAILY_BAK = STORAGE + ".daily_bak"
 MIN_ENTRIES = 100  # これ以下になったら異常
@@ -11,7 +13,7 @@ CHECK_INTERVAL = 30  # 30秒ごとにチェック
 
 JST = timezone(timedelta(hours=9))
 logging.basicConfig(
-    filename="/root/storage_watchdog.log",
+    filename=os.path.join(BASE_DIR, "storage_watchdog.log"),
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s"
 )
