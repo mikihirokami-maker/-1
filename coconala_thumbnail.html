@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1220">
+<title>Coconala Thumbnail</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1220px;
+    height: 1240px;
+    overflow: hidden;
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+
+  .container {
+    width: 1220px;
+    height: 1240px;
+    background: linear-gradient(135deg, #0a0e27 0%, #1a1040 35%, #120a3a 65%, #0d1a3a 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Background decorative elements */
+  .container::before {
+    content: '';
+    position: absolute;
+    top: -200px;
+    right: -200px;
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, rgba(99, 50, 255, 0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .container::after {
+    content: '';
+    position: absolute;
+    bottom: -150px;
+    left: -150px;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(0, 150, 255, 0.1) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 50px;
+    padding: 80px 60px;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+  }
+
+  /* Top icon area */
+  .icon-area {
+    width: 130px;
+    height: 130px;
+    border-radius: 32px;
+    background: linear-gradient(135deg, #6c3ce0, #3a7bfd);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 64px;
+    box-shadow: 0 12px 50px rgba(108, 60, 224, 0.4);
+  }
+
+  /* Main title */
+  .title {
+    font-size: 96px;
+    font-weight: 900;
+    color: #ffffff;
+    text-align: center;
+    line-height: 1.2;
+    text-shadow:
+      0 0 40px rgba(100, 140, 255, 0.4),
+      0 0 80px rgba(100, 140, 255, 0.15);
+    letter-spacing: 0.04em;
+  }
+
+  /* Subtitle */
+  .subtitle {
+    font-size: 44px;
+    font-weight: 700;
+    color: #7ec8f0;
+    text-align: center;
+    letter-spacing: 0.06em;
+    line-height: 1.5;
+  }
+
+  /* Divider line */
+  .divider {
+    width: 200px;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, rgba(120, 180, 255, 0.5), transparent);
+  }
+
+  /* Feature badges */
+  .badges {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .badge {
+    padding: 20px 42px;
+    border-radius: 60px;
+    background: linear-gradient(135deg, rgba(108, 60, 224, 0.35), rgba(58, 123, 253, 0.25));
+    border: 1.5px solid rgba(140, 160, 255, 0.25);
+    color: #d0ddf8;
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    backdrop-filter: blur(4px);
+    white-space: nowrap;
+  }
+
+  /* Price area */
+  .price-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+
+  .price {
+    font-size: 88px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #ffd700, #ffaa00, #ffe066);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    filter: drop-shadow(0 0 30px rgba(255, 200, 0, 0.3));
+    letter-spacing: 0.02em;
+  }
+
+  .price-note {
+    font-size: 26px;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 400;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="content">
+    <div class="icon-area">🧵</div>
+
+    <div class="title">Threads<br>自動投稿ツール</div>
+
+    <div class="subtitle">予約投稿・リポスト・引用が全自動</div>
+
+    <div class="divider"></div>
+
+    <div class="badges">
+      <div class="badge">🤖 完全自動</div>
+      <div class="badge">📱 複数アカウント対応</div>
+      <div class="badge">🌐 サーバー不要</div>
+    </div>
+
+    <div class="price-area">
+      <div class="price">月額 1,980円〜</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

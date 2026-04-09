@@ -23,42 +23,75 @@ init_db()
 # 認証チェック（未ログインならログイン画面を表示して停止）
 user = check_auth()
 
-# --- CSS ---
-st.markdown("""
-<style>
+# --- テーマ選択 ---
+THEMES = {
+    "neon": {"name": "ネオン", "text_color": "#e0e0e0", "heading_color": "#00f2ff", "accent": "#00c6ff", "accent2": "#0072ff", "card_bg": "rgba(15, 15, 40, 0.7)", "base_bg": "#0a0a1a", "base_bg2": "#0d1117", "base_bg3": "#0a0a2e"},
+    "sunset": {"name": "サンセット", "text_color": "#f0e0d0", "heading_color": "#ff8c42", "accent": "#ff6b35", "accent2": "#e74c3c", "card_bg": "rgba(30, 15, 10, 0.7)", "base_bg": "#1a0a05", "base_bg2": "#1e1108", "base_bg3": "#2a1005"},
+    "sakura": {"name": "サクラ", "text_color": "#4a3a4a", "heading_color": "#d4548a", "accent": "#e75480", "accent2": "#b388eb", "card_bg": "rgba(245, 230, 240, 0.7)", "base_bg": "#fdf0f5", "base_bg2": "#f8e8f0", "base_bg3": "#f0dde8"},
+}
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'neon'
+if st.session_state.theme not in THEMES:
+    st.session_state.theme = 'neon'
+_theme = THEMES[st.session_state.theme]
+_tc = _theme["text_color"]
+_hc = _theme["heading_color"]
+_ac = _theme["accent"]
+_ac2 = _theme["accent2"]
+_cb = _theme["card_bg"]
+_bb = _theme["base_bg"]
+_bb2 = _theme["base_bg2"]
+_bb3 = _theme["base_bg3"]
+
+# --- CSS（テーマ対応） ---
+_bg_rule = f"background: linear-gradient(135deg, {_bb} 0%, {_bb2} 25%, {_bb3} 50%, {_bb2} 75%, {_bb} 100%) !important; background-size: 400% 400% !important; animation: bgShift 20s ease infinite !important;"
+_sidebar_bg = f"background: linear-gradient(180deg, {_bb3} 0%, {_bb2} 50%, {_bb} 100%) !important;"
+_btn_color = "white" if st.session_state.theme != 'sakura' else "#fff"
+
+_css = f"""<style>
+    @keyframes bgShift {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
+    @keyframes glow {{ 0%, 100% {{ text-shadow: 0 0 10px {_hc}40; }} 50% {{ text-shadow: 0 0 20px {_hc}80, 0 0 40px {_ac}40; }} }}
     html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"],
-    .stApp, .main, section[data-testid="stSidebar"],
-    [data-testid="stAppViewBlockContainer"] {
-        background-color: #0a0a0a !important; color: #e0e0e0;
-    }
-    /* rerun時のちらつき防止 */
-    iframe[title="streamlit_app"] { background-color: #0a0a0a !important; }
-    h1, h2, h3, h4 { color: #00f2ff !important; font-family: 'Helvetica Neue', sans-serif; }
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea {
-        background-color: #1a1a2e !important; color: #fff !important;
-        border: 1px solid #333 !important; border-radius: 8px !important;
-    }
-    .stSelectbox > div > div { background-color: #1a1a2e !important; }
-    .stButton > button {
-        background: linear-gradient(90deg, #00c6ff, #0072ff); color: white;
-        font-weight: bold; border: none; border-radius: 8px; padding: 0.5rem 1rem;
-        transition: all 0.3s;
-    }
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(0, 114, 255, 0.4);
-    }
-    .next-run-badge {
-        background: linear-gradient(90deg, #0072ff, #00c6ff); color: white;
-        padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9em;
-    }
-    .comp-card {
-        background: rgba(255, 255, 255, 0.05); padding: 14px; border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
+    .stApp, .main, [data-testid="stAppViewBlockContainer"] {{
+        {_bg_rule}
+        color: {_tc};
+    }}
+    section[data-testid="stSidebar"] {{
+        {_sidebar_bg}
+        border-right: 1px solid {_hc}18 !important;
+    }}
+    iframe[title="streamlit_app"] {{ background-color: {_bb} !important; }}
+    h1 {{ color: {_hc} !important; font-family: 'Helvetica Neue', sans-serif; animation: glow 3s ease-in-out infinite; letter-spacing: 2px; }}
+    h2, h3, h4 {{ color: {_hc} !important; font-family: 'Helvetica Neue', sans-serif; text-shadow: 0 0 8px {_hc}30; }}
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea {{
+        background: {_cb} !important; color: {_tc} !important;
+        border: 1px solid {_hc}20 !important; border-radius: 10px !important;
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }}
+    .stTextInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {{
+        border-color: {_hc}60 !important; box-shadow: 0 0 12px {_hc}15 !important;
+    }}
+    .stSelectbox > div > div {{ background: {_cb} !important; border-radius: 10px !important; }}
+    .stButton > button {{
+        background: linear-gradient(135deg, {_ac}, {_ac2}); color: {_btn_color};
+        background-size: 200% 200%; font-weight: bold; border: none; border-radius: 10px;
+        padding: 0.5rem 1.2rem; transition: all 0.4s ease; box-shadow: 0 2px 10px {_ac}20;
+    }}
+    .stButton > button:hover {{ transform: translateY(-3px) scale(1.02); box-shadow: 0 6px 20px {_ac}40; background-position: right center; }}
+    .stTabs [data-baseweb="tab-list"] {{ background: transparent !important; border-bottom: 1px solid {_hc}15; }}
+    .stTabs [data-baseweb="tab"] {{ color: #888 !important; transition: color 0.3s; }}
+    .stTabs [aria-selected="true"] {{ color: {_hc} !important; text-shadow: 0 0 8px {_hc}30; }}
+    .streamlit-expanderHeader {{ background: {_cb} !important; border-radius: 10px !important; border: 1px solid {_hc}10 !important; transition: all 0.3s; }}
+    .streamlit-expanderHeader:hover {{ border-color: {_hc}25 !important; }}
+    [data-testid="stMetric"] {{ background: {_cb}; border: 1px solid {_hc}15; border-radius: 12px; padding: 12px 16px; transition: all 0.3s; }}
+    [data-testid="stMetric"]:hover {{ border-color: {_hc}35; box-shadow: 0 0 15px {_hc}10; }}
+    ::-webkit-scrollbar {{ width: 6px; }}
+    ::-webkit-scrollbar-track {{ background: {_bb}; }}
+    ::-webkit-scrollbar-thumb {{ background: linear-gradient(180deg, {_ac}, {_ac2}); border-radius: 3px; }}
+    .next-run-badge {{ background: linear-gradient(90deg, {_ac}, {_ac2}); color: white; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9em; }}
+    .comp-card {{ background: {_cb}; padding: 14px; border-radius: 10px; border: 1px solid {_hc}12; margin-bottom: 10px; }}
+</style>"""
+st.markdown(_css, unsafe_allow_html=True)
 
 # Fix Streamlit React DOM reconciliation error (removeChild bug)
 # Must target parent window since components.html runs in an iframe
@@ -824,6 +857,16 @@ if 'post_queue' not in st.session_state:
 
 show_user_sidebar(user)
 
+# テーマ選択（サイドバー）
+st.sidebar.markdown("---")
+st.sidebar.markdown("**🎨 テーマ**")
+_theme_names = {k: v["name"] for k, v in THEMES.items()}
+_current_idx = list(_theme_names.keys()).index(st.session_state.theme)
+_selected_theme = st.sidebar.radio("テーマを選択", list(_theme_names.keys()), format_func=lambda x: _theme_names[x], index=_current_idx, key="theme_selector", label_visibility="collapsed")
+if _selected_theme != st.session_state.theme:
+    st.session_state.theme = _selected_theme
+    st.rerun()
+
 MEMO_FILE = os.path.join(USER_DATA_DIR, "memo.txt")
 _memo_col1, _memo_col2 = st.columns([3, 1])
 _memo_col1.title("THREADS AUTO MASTER (Complete Edition)")
@@ -1064,8 +1107,8 @@ with tab2:
     sel_username = ''
     sel_idx = 0
     if not st.session_state.accounts:
-        st.warning("Please register an account first")
-    else:
+        st.info("💡 まず「アカウント管理」タブからThreadsアカウントを追加してください。追加後、ここで自動投稿の設定ができます。")
+    if st.session_state.accounts:
         acc_names = [a['name'] for a in st.session_state.accounts]
 
         # Backup button
@@ -1103,9 +1146,12 @@ with tab2:
         display_names = [f"{ni+1}. {p[0]}" for ni, p in enumerate(filtered_pairs)]
         display_indices = [p[1] for p in filtered_pairs]
         st.markdown('<div id="pf-acc-anchor"></div>', unsafe_allow_html=True)
-        sel_name = st.selectbox("", display_names, key="sel_acc_t2", label_visibility="collapsed")
-        sel_idx = display_indices[display_names.index(sel_name)]
-        sel_username = st.session_state.accounts[sel_idx].get('username', '')
+        if display_names:
+            sel_name = st.selectbox("", display_names, key="sel_acc_t2", label_visibility="collapsed")
+            sel_idx = display_indices[display_names.index(sel_name)]
+            sel_username = st.session_state.accounts[sel_idx].get('username', '')
+        else:
+            sel_name = None
 
         # Clear past posts cache when account changes
         if st.session_state.past_posts_acc != sel_idx:
@@ -2653,7 +2699,7 @@ with tab3:
     if st.button("📌 固定投稿チェック", key="pin_check_btn"):
         _pin_results = []
         _pin_bar = st.progress(0, text="固定投稿を確認中（Playwrightで各プロフィールをチェック）...")
-        _pin_total = len(st.session_state.accounts)
+        _pin_total = max(len(st.session_state.accounts), 1)
         _pin_done = [0]
         _pin_lock = __import__('threading').Lock()
 
@@ -2714,8 +2760,8 @@ with tab3:
             return results
 
         import math
-        _batch_size = math.ceil(_pin_total / 5)
-        _batches = [list(st.session_state.accounts)[i:i+_batch_size] for i in range(0, _pin_total, _batch_size)]
+        _batch_size = max(math.ceil(len(st.session_state.accounts) / 5), 1)
+        _batches = [list(st.session_state.accounts)[i:i+_batch_size] for i in range(0, len(st.session_state.accounts), _batch_size)]
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
         with ThreadPoolExecutor(max_workers=5) as _pin_exec:
@@ -2984,7 +3030,7 @@ with tab3:
                     return results
 
                 import math
-                _pub_batch_size = math.ceil(_pub_total / 5)
+                _pub_batch_size = max(math.ceil(_pub_total / 5), 1)
                 _pub_batches = [_all_check_usernames[i:i+_pub_batch_size] for i in range(0, _pub_total, _pub_batch_size)]
 
                 from concurrent.futures import ThreadPoolExecutor
@@ -3798,8 +3844,8 @@ with tab5:
     # アカウント選択（1つだけ、最新順で選べる）
     _sq_acc_idx = None
     if not st.session_state.accounts:
-        st.warning("アカウントを先に登録してください")
-    else:
+        st.info("💡 「アカウント管理」タブからアカウントを追加すると、ここで引用投稿ができます。")
+    if st.session_state.accounts:
         _sq_acc_opts = [f"{i}: {a.get('name', a.get('username', ''))}" for i, a in enumerate(st.session_state.accounts)]
         _sq_acc_opts_rev = list(reversed(_sq_acc_opts))
         _sq_sort_col1, _sq_sort_col2 = st.columns([3, 1])
@@ -4134,74 +4180,3 @@ Threads APIから、アカウントの過去投稿を取得して確認できま
 過去の引用投稿の履歴を確認できます。どの投稿を引用して、どんなコメントをつけたかが記録されています。
 """)
 
-    # ==================== FAQ ====================
-    with st.expander("よくある質問（FAQ）", expanded=False):
-        st.markdown("""
-### よくある質問と回答
-
----
-
-**Q. アクセストークンの有効期限はどれくらいですか？**
-
-長期トークンの有効期限は約60日です。このツールでは**トークンの自動更新機能**が搭載されており、期限が近づくと自動的に新しいトークンに更新されます。自動更新に失敗した場合は投稿モニターにエラーが表示されるので、その場合はMeta for Developersで手動でトークンを再発行してください。
-
----
-
-**Q. 投稿が実行されない場合はどうすればいいですか？**
-
-以下のポイントを順番に確認してください。
-
-1. アカウント管理タブで、該当アカウントが **ON** になっているか
-2. スケジュールの時間帯設定が正しいか（例：現在の時刻が設定した時間帯内か）
-3. 投稿モニターにエラーが表示されていないか
-4. 投稿キューが「一時停止」になっていないか
-5. バックグラウンドのスケジューラーが正常に動いているか
-
----
-
-**Q. 画像付き投稿でエラーが出ます**
-
-画像関連のエラーで多い原因は以下の通りです。
-
-- **ファイルサイズが大きすぎる**: 5MB以下に圧縮してください
-- **対応していない画像形式**: JPEG、PNGを推奨します
-- **画像URLの期限切れ**: アップロードした画像のURLが一時的に無効になっている場合があります。再度アップロードしてみてください
-
----
-
-**Q. アカウントが凍結されないためのコツは？**
-
-凍結リスクを下げるために、以下を守ってください。
-
-- **1アカウントあたりの1日の投稿数は3〜5件**が安全な目安
-- **合間機能を必ず設定**して、投稿間隔を2時間以上空ける
-- **投稿時間帯を自然な範囲に設定**する（深夜の投稿は避ける）
-- 新規アカウントはいきなり大量投稿せず、**少しずつ投稿数を増やす**
-- 同じテキストの連続投稿は避け、**リピート投稿機能でバリエーションを持たせる**
-
----
-
-**Q. 合間機能はどういう仕組みですか？**
-
-合間機能は、**同一アカウントの投稿が短時間に集中しないように自動調整する機能**です。
-
-例えば、合間を「3時間」に設定した場合：
-- アカウントAが10:00に投稿 → 次のアカウントAの投稿は13:00以降に自動で繰り延べ
-- 他のアカウント（B, C など）の投稿スケジュールには影響しません
-
-これにより、同じアカウントから不自然な頻度で投稿されることを防ぎ、凍結リスクを軽減します。
-
----
-
-**Q. リピート投稿のローテーションはどうなっていますか？**
-
-リピート投稿では、登録したテキストが順番に使われます。
-
-例えば、テキストA（3日間）、テキストB（5日間）、テキストC（2日間）を登録した場合：
-- 1〜3日目: テキストAで投稿
-- 4〜8日目: テキストBで投稿
-- 9〜10日目: テキストCで投稿
-- 11日目〜: テキストAに戻ってローテーション再開
-
-画像は共通で、テキストだけが切り替わります。商品紹介やキャンペーン情報など、定期的に内容を変えたい場合に最適です。
-""")

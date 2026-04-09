@@ -27,10 +27,12 @@ _db_lock = threading.Lock()
 
 # プラン定義
 PLANS = {
-    'lite':      {'name': 'ライト',      'max_accounts': 3,    'price': 2980},
-    'standard':  {'name': 'スタンダード',  'max_accounts': 10,   'price': 4980},
-    'pro':       {'name': 'プロ',        'max_accounts': 30,   'price': 9800},
-    'unlimited': {'name': '無制限',      'max_accounts': 9999, 'price': 14800},
+    'lite':        {'name': 'ライト',        'max_accounts': 10,   'price': 1980},
+    'standard':    {'name': 'スタンダード',    'max_accounts': 30,   'price': 3980},
+    'pro':         {'name': 'プロ',          'max_accounts': 50,   'price': 5980},
+    'business100': {'name': 'ビジネス100',    'max_accounts': 100,  'price': 9800},
+    'business200': {'name': 'ビジネス200',    'max_accounts': 200,  'price': 14800},
+    'business300': {'name': 'ビジネス300',    'max_accounts': 300,  'price': 19800},
 }
 
 
@@ -125,8 +127,8 @@ def init_db():
                     admin_id,
                     'admin',
                     _hash_password('admin123'),
-                    'unlimited',
-                    PLANS['unlimited']['max_accounts'],
+                    'business300',
+                    PLANS['business300']['max_accounts'],
                     1,  # is_active
                     1,  # is_admin
                     now,
